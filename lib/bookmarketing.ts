@@ -38,6 +38,17 @@ export function nextChannel(index: number, total: number): number {
   return Math.min(index + 1, total - 1);
 }
 
+/** Takes one logged channel back off the list. */
+export function unlogMove(progress: Progress, campaignId: string, index: number): Progress {
+  return { ...progress, [campaignId]: (progress[campaignId] ?? []).filter((item) => item !== index) };
+}
+
+/** The first channel not yet logged, or -1 when every move is logged. */
+export function firstOpen(progress: Progress, campaign: Campaign): number {
+  const done = progress[campaign.id] ?? [];
+  return campaign.channels.findIndex((_, index) => !done.includes(index));
+}
+
 export function resetProgress(progress: Progress, campaignId: string): Progress {
   return { ...progress, [campaignId]: [] };
 }

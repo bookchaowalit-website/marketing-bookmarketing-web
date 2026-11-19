@@ -1,11 +1,28 @@
 import type { Metadata } from "next";
+import { Geist } from "next/font/google";
+import { SITE_URL } from "@/lib/site";
 import "./globals.css";
 
+// The font variable sits on <html>: the App shell tokens live on :root and read it from there.
+const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+
+const description = "A design study for sequencing a book campaign around one clear promise: pick a campaign file and log each channel move. Synthetic data.";
+
 export const metadata: Metadata = {
-  title: "BookMarketing — Editorial Campaign Desk",
-  description: "A product design study for sequencing a book campaign around one clear editorial promise.",
+  title: "BookMarketing | Bookchaowalit",
+  description,
+  authors: [{ name: "Bookchaowalit", url: "https://bookchaowalit.com" }],
+  creator: "Bookchaowalit",
+  metadataBase: new URL(SITE_URL),
+  alternates: { canonical: "/" },
+  openGraph: { type: "website", title: "BookMarketing | Bookchaowalit", description, siteName: "Bookchaowalit" },
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body>{children}</body></html>;
+  return (
+    <html lang="en" className={geistSans.variable}>
+      <body>{children}</body>
+    </html>
+  );
 }

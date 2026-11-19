@@ -40,3 +40,15 @@ describe("logging moves", () => {
     expect(pad2(3)).toBe("03");
   });
 });
+
+describe("unlogMove and firstOpen", async () => {
+  const { CAMPAIGNS, firstOpen, logMove, unlogMove } = await import("@/lib/bookmarketing");
+  const id = CAMPAIGNS[0].id;
+  it("takes a move off the list and finds the first open move", () => {
+    const logged = logMove(logMove({}, id, 0), id, 1);
+    expect(firstOpen(logged, CAMPAIGNS[0])).toBe(2);
+    expect(unlogMove(logged, id, 0)[id]).toEqual([1]);
+    expect(unlogMove({}, id, 0)[id]).toEqual([]);
+    expect(firstOpen(logMove(logged, id, 2), CAMPAIGNS[0])).toBe(-1);
+  });
+});
