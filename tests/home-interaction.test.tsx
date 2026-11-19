@@ -78,3 +78,43 @@ describe("reset", () => {
     expect($(".as-toast")).toBeNull();
   });
 });
+
+describe("batch Undo", () => {
+  const sideButton = (title: string) => button(title, $(".as-side")!);
+  const logged = () => pills().filter((pill) => pill === "Logged").length;
+
+  it("consecutive resets restore together with one Undo", () => {
+    vi.useFakeTimers();
+    press(button("Log next move"));
+    press(button("Log next move"));
+    press(button("Reset file"));
+    act(() => { vi.advanceTimersByTime(4000); });
+    press(sideButton("Quiet Tools"));
+    press(button("Log next move"));
+    press(button("Reset file"));
+    expect(logged()).toBe(0);
+    expect($(".as-toast span")!.textContent).toBe("Reset 2 files");
+    expect(button("Undo").getAttribute("aria-label")).toBe("Undo reset of 2 files");
+    // The second reset restarted the 6 s window: 4 s later it is still open.
+    act(() => { vi.advanceTimersByTime(4000); });
+    press(button("Undo"));
+    expect($(".as-toast")).toBeNull();
+    expect(status()).toBe("Restored the logged moves in 2 files.");
+    expect(logged()).toBe(1);
+    press(sideButton("Field Notes"));
+    expect(logged()).toBe(2);
+  });
+
+  it("keyboard remove focuses Undo; Undo returns to Reset file, Escape to Log next move", () => {
+    press(button("Log next move"));
+    press(button("Reset file"), 0);
+    expect(document.activeElement).toBe(button("Undo"));
+    press(button("Undo"), 0);
+    expect(logged()).toBe(1);
+    expect(document.activeElement).toBe(button("Reset file"));
+    press(button("Reset file"), 0);
+    act(() => { $(".as-toast")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect($(".as-toast")).toBeNull();
+    expect(document.activeElement).toBe(button("Log next move"));
+  });
+});

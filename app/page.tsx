@@ -1,28 +1,59 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AppFoot, AppTop, ListButton, Pill, type Tone } from "@/components/app-shell";
 import { CAMPAIGNS, findCampaign, firstOpen, logMove, resetProgress, unlogMove, type Progress } from "@/lib/bookmarketing";
 
-type Undo = { campaignId: string; done: number[]; viaKeyboard: boolean };
+// Every reset inside the Undo window joins one batch: one Undo puts back the moves of each file it cleared.
+type Reset = { campaignId: string; done: number[] };
+type Undo = { resets: Reset[]; viaKeyboard: boolean };
+const files = (n: number) => `${n} ${n === 1 ? "file" : "files"}`;
 
 export default function Home() {
   const [campaignId, setCampaignId] = useState(CAMPAIGNS[0].id);
   const [progress, setProgress] = useState<Progress>({});
   const [announcement, setAnnouncement] = useState("");
-  const [undo, setUndo] = useState<Undo | null>(null);
+  const [undo, setUndoState] = useState<Undo | null>(null);
+  // The latest batch, so two resets before a re-render still both land in it.
+  const pendingRef = useRef<Undo | null>(null);
+  const setUndo = (next: Undo | null) => { pendingRef.current = next; setUndoState(next); };
   const [toastFocused, setToastFocused] = useState(false);
   const undoRef = useRef<HTMLButtonElement>(null);
+  const toastRef = useRef<HTMLDivElement>(null);
+  const resetRef = useRef<HTMLButtonElement>(null);
+  const logRef = useRef<HTMLButtonElement>(null);
+  const focusAfterClose = useRef(false);
   const campaign = findCampaign(campaignId);
   const done = progress[campaign.id] ?? [];
   const total = campaign.channels.length;
   const next = firstOpen(progress, campaign);
 
   useEffect(() => { if (undo?.viaKeyboard) undoRef.current?.focus(); }, [undo]);
-  // The Undo toast closes 6 s after a reset, but never while it holds focus.
+  // When the toast closes after Undo or Escape, focus goes to Reset file once it is enabled again (after Undo),
+  // else to the Log next move button, else the first checkbox.
+  useEffect(() => {
+    if (undo || !focusAfterClose.current) return;
+    focusAfterClose.current = false;
+    const target = [resetRef.current, logRef.current].find((button) => button && !button.disabled);
+    (target ?? document.querySelector<HTMLInputElement>(".as-check input"))?.focus();
+  }, [undo, progress]);
+  // While the toast shows, reserve its height (plus its 24px offset and a gap) at the bottom of the page and in
+  // scroll-padding, so the last moves and anything focused behind it can scroll clear of it.
+  const toastShown = undo !== null;
+  useLayoutEffect(() => {
+    const toast = toastRef.current;
+    if (!toastShown || !toast) return;
+    const rootStyle = document.documentElement.style;
+    const reserve = () => rootStyle.setProperty("--as-toast-space", `${toast.offsetHeight + 32}px`);
+    reserve();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(reserve) : null;
+    observer?.observe(toast);
+    return () => { observer?.disconnect(); rootStyle.removeProperty("--as-toast-space"); };
+  }, [toastShown]);
+  // The Undo toast closes 6 s after the latest reset (each reset restarts it), but never while it holds focus.
   useEffect(() => {
     if (!undo || toastFocused) return;
-    const timer = window.setTimeout(() => setUndo(null), 6000);
+    const timer = window.setTimeout(() => { pendingRef.current = null; setUndoState(null); }, 6000);
     return () => window.clearTimeout(timer);
   }, [undo, toastFocused]);
 
@@ -41,17 +72,25 @@ export default function Home() {
   }
 
   function reset(viaKeyboard: boolean) {
-    setUndo({ campaignId: campaign.id, done, viaKeyboard });
+    const resets = [...(pendingRef.current?.resets ?? []), { campaignId: campaign.id, done }];
+    setUndo({ resets, viaKeyboard });
     setProgress((current) => resetProgress(current, campaign.id));
-    setAnnouncement(`Reset ${campaign.title}. Undo is available for a few seconds.`);
+    setAnnouncement(resets.length === 1 ? `Reset ${campaign.title}. Undo is available for a few seconds.` : `Reset ${files(resets.length)}. Undo is available for a few seconds.`);
+  }
+
+  function closeToast() {
+    focusAfterClose.current = true;
+    setUndo(null);
+    setToastFocused(false);
   }
 
   function restore() {
-    if (!undo) return;
-    setProgress((current) => ({ ...current, [undo.campaignId]: undo.done }));
-    setAnnouncement("Restored the logged moves.");
-    setUndo(null);
-    setToastFocused(false);
+    const resets = pendingRef.current?.resets;
+    if (!resets?.length) return;
+    // Each file gets back the moves it had when reset, plus any logged since.
+    setProgress((current) => resets.reduce((next, { campaignId: id, done: moves }) => ({ ...next, [id]: [...new Set([...(next[id] ?? []), ...moves])].sort((a, b) => a - b) }), current));
+    setAnnouncement(resets.length === 1 ? "Restored the logged moves." : `Restored the logged moves in ${files(resets.length)}.`);
+    closeToast();
   }
 
   const status = (index: number): { tone: Tone; label: string } =>
@@ -79,8 +118,8 @@ export default function Home() {
               <p>For {campaign.audience}</p>
             </div>
             <div className="as-tools">
-              <button type="button" className="as-plain as-danger" onClick={(event) => reset(event.detail === 0)} disabled={done.length === 0}>Reset file</button>
-              <button type="button" className="as-button" onClick={logNext} disabled={next < 0}>{next < 0 ? "All moves logged" : "Log next move"}</button>
+              <button ref={resetRef} type="button" className="as-plain as-danger" onClick={(event) => reset(event.detail === 0)} disabled={done.length === 0}>Reset file</button>
+              <button ref={logRef} type="button" className="as-button" onClick={logNext} disabled={next < 0}>{next < 0 ? "All moves logged" : "Log next move"}</button>
             </div>
           </div>
 
@@ -125,15 +164,16 @@ export default function Home() {
       <p className="as-sr" role="status" aria-live="polite">{announcement}</p>
       {undo ? (
         <div
+          ref={toastRef}
           className="as-toast"
           role="group"
           aria-label="Undo reset"
           onFocus={() => setToastFocused(true)}
           onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setToastFocused(false); }}
-          onKeyDown={(event) => { if (event.key === "Escape") { setUndo(null); setToastFocused(false); } }}
+          onKeyDown={(event) => { if (event.key === "Escape") closeToast(); }}
         >
-          <span>Reset the logged moves</span>
-          <button ref={undoRef} type="button" className="as-plain" onClick={restore}>Undo</button>
+          <span>{undo.resets.length === 1 ? "Reset the logged moves" : `Reset ${files(undo.resets.length)}`}</span>
+          <button ref={undoRef} type="button" className="as-plain" onClick={restore} aria-label={undo.resets.length === 1 ? undefined : `Undo reset of ${files(undo.resets.length)}`}>Undo</button>
         </div>
       ) : null}
 
